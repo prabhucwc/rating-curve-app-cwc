@@ -61,6 +61,11 @@ if uploaded_file is not None:
         st.dataframe(df_for_prediction.head())
         st.write(f"Number of rows for prediction: {len(df_for_prediction)}")
 
+        # Initialize variables for fitting parameters and plot
+        C_opt, H0_opt, n_opt = None, None, None
+        overall_standard_error = None
+        fig = None # Initialize fig as None
+
         # --- Rating Curve Fitting Section ---
         if not df_for_fitting.empty and len(df_for_fitting) >= 3:
             st.markdown("--- ")
@@ -193,37 +198,57 @@ if uploaded_file is not None:
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-                st.markdown("--- ")
-                st.subheader("Comprehensive Processed Data")
-                st.dataframe(df.head())
-                st.dataframe(df.tail())
-
-                # --- Excel Download ---
-                # Create an Excel writer object
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, sheet_name='Processed Data', index=False)
-                    # Add summary statistics if RMSE was calculated
-                    if 'overall_standard_error' in locals() and overall_standard_error is not None:
-                        summary_df = pd.DataFrame({
-                            'Metric': ['Fitted C', 'Fitted H0', 'Fitted n', 'Overall RMSE'],
-                            'Value': [f'{C_opt:.3f}', f'{H0_opt:.3f}', f'{n_opt:.3f}', f'{overall_standard_error:.3f}']
-                        })
-                        summary_df.to_excel(writer, sheet_name='Summary Statistics', index=False)
-                output.seek(0)
-                st.download_button(
-                    label="Download Processed Data as Excel",
-                    data=output,
-                    file_name="processed_stage_discharge_data.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
             except Exception as e:
                 st.error(f"Error fitting rating curve or predicting: {e}")
                 st.info("Ensure your 'Water Level' and 'Discharge' columns have sufficient numerical data (at least 3 points) and are positive for fitting.")
 
         else:
             st.warning("Not enough valid data points for curve fitting (need at least 3 rows with both Water Level and Discharge). No rating curve will be fitted.")
+
+        st.markdown("--- ")
+        st.subheader("Comprehensive Processed Data")
+        st.dataframe(df.head())
+        st.dataframe(df.tail())
+
+        # --- Excel Download ---
+        # Create an Excel writer object
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Processed Data', index=False)
+            # Add summary statistics if RMSE was calculated and parameters exist
+            if C_opt is not None and overall_standard_error is not None:
+                summary_df = pd.DataFrame({
+                    'Metric': ['Fitted C', 'Fitted H0', 'Fitted n', 'Overall RMSE'],
+                    'Value': [f'{C_opt:.3f}', f'{H0_opt:.3f}', f'{n_opt:.3f}', f'{overall_standard_error:.3f}']
+                })
+                summary_df.to_excel(writer, sheet_name='Summary Statistics', index=False)
+
+            # Save Plotly figure as a static image and embed into Excel if fig exists
+            if fig is not None:
+                try:
+                    img_buffer = BytesIO()
+                    fig.write_image(img_buffer, format='png', width=1200, height=800, scale=2) # Adjust width/height/scale as needed
+                    img_buffer.seek(0)
+
+                    # Get the xlsxwriter workbook and worksheet objects.
+                    workbook  = writer.book
+                    worksheet = workbook.add_worksheet('Rating Curve Plot')
+
+                    # Insert the image. Needs to be placed at a specific cell.
+                    # Example: 'A1' is top-left, adjust row/col based on desired placement.
+                    worksheet.insert_image('B2', 'plot.png', {'image_data': img_buffer})
+
+                except Exception as img_e:
+                    st.warning(f"Could not embed graph in Excel. Ensure 'kaleido' is installed and your environment supports image export: {img_e}")
+
+        output.seek(0)
+        st.download_button(
+            label="Download Processed Data as Excel",
+            data=output,
+            file_name="processed_stage_discharge_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
 
     except Exception as e:
         st.error(f"Error processing Excel file: {e}")
